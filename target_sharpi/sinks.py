@@ -8,7 +8,25 @@ from singer_sdk.sinks import RecordSink
 
 
 def _encode_back(text: str) -> str:
-    return text.encode("utf-8").decode("unicode_escape")
+    """Safely handle text encoding to ensure proper UTF-8 strings."""
+    if not isinstance(text, str):
+        return text
+
+    try:
+        text.encode('utf-8')
+        return text
+    except UnicodeEncodeError:
+        pass
+
+    try:
+        return text.encode('latin1').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        pass
+
+    try:
+        return text.encode('utf-8', errors='replace').decode('utf-8')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
 
 
 class SharpiBaseSink(RecordSink):
@@ -37,6 +55,7 @@ class SharpiBaseSink(RecordSink):
 
         response = requests.post(url, json=data, headers=headers)
 
+        self.logger.info("Request body: %s", data)
         self.logger.info("Response status code: %s", response.status_code)
         self.logger.debug("Response: %s", response.text)
 
@@ -45,6 +64,7 @@ class SharpiBaseSink(RecordSink):
             if "duplicate key" in response_json.get("message", ""):
                 self.logger.warning("Duplicate record ignored for %s: %s", endpoint, data.get('code', 'unknown'))
                 return
+            self.logger.warning("Response: %s", response_json)
             response.raise_for_status()
 
 
@@ -59,7 +79,7 @@ class ProductsSink(SharpiBaseSink):
             context: Stream partition or context dictionary.
         """
         product_data = {
-            "code": record.get("code"),
+            "code": str(record.get("code")),
             "name": record.get("name"),
             "maker": record.get("maker"),
             "sku": record.get("sku"),

@@ -7,6 +7,10 @@ from typing import Any, Dict
 from singer_sdk.sinks import RecordSink
 
 
+def _encode_back(text: str) -> str:
+    return text.encode("utf-8").decode("unicode_escape")
+
+
 class SharpiBaseSink(RecordSink):
     """Base Sharpi target sink class."""
 
@@ -64,8 +68,13 @@ class ProductsSink(SharpiBaseSink):
             "description": record.get("description"),
             "observation": record.get("observation"),
             "line": record.get("line"),
-            "active": record.get("active", True)
+            "active": record.get("active", True),
+            "custom_attributes": record.get("custom_attributes", {})
         }
+        for key, value in product_data.items():
+            if isinstance(value, str):
+                product_data[key] = _encode_back(value)
+
         self.make_request("products", product_data)
 
 
@@ -88,6 +97,10 @@ class PricesSink(SharpiBaseSink):
             "active": record.get("active", True),
             "custom_attributes": record.get("custom_attributes", {})
         }
+        for key, value in price_data.items():
+            if isinstance(value, str):
+                price_data[key] = _encode_back(value)
+
         self.make_request("prices", price_data)
 
 
@@ -134,6 +147,10 @@ class CustomersSink(SharpiBaseSink):
             "salesperson_ids": record.get("salesperson_ids", []),
             "custom_attributes": record.get("custom_attributes", {})
         }
+        for key, value in customer_data.items():
+            if isinstance(value, str):
+                customer_data[key] = _encode_back(value)
+
         self.make_request("customers", customer_data)
 
 

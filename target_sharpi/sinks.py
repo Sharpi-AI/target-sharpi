@@ -7,6 +7,17 @@ from typing import Any, Dict
 from singer_sdk.sinks import RecordSink
 
 
+def _encode_everything(input: Any) -> Any:
+    if isinstance(input, str):
+        return _encode_back(input)
+    elif isinstance(input, dict):
+        return {k: _encode_everything(v) for k, v in input.items()}
+    elif isinstance(input, list):
+        return [_encode_everything(v) for v in input]
+
+    return input
+
+
 def _encode_back(text: str) -> str:
     """Safely handle text encoding to ensure proper UTF-8 strings."""
     if not isinstance(text, str):
@@ -71,6 +82,8 @@ class SharpiBaseSink(RecordSink):
 class ProductsSink(SharpiBaseSink):
     """Sharpi products sink class."""
 
+    key_properties = ["code"]
+
     def process_record(self, record: dict, context: dict) -> None:
         """Process the products record.
 
@@ -91,15 +104,15 @@ class ProductsSink(SharpiBaseSink):
             "active": record.get("active", True),
             "custom_attributes": record.get("custom_attributes", {})
         }
-        for key, value in product_data.items():
-            if isinstance(value, str):
-                product_data[key] = _encode_back(value)
+        product_data = _encode_everything(product_data)
 
         self.make_request("products", product_data)
 
 
 class PricesSink(SharpiBaseSink):
     """Sharpi prices sink class."""
+
+    key_properties = ["product_code"]
 
     def process_record(self, record: dict, context: dict) -> None:
         """Process the prices record.
@@ -117,15 +130,15 @@ class PricesSink(SharpiBaseSink):
             "active": record.get("active", True),
             "custom_attributes": record.get("custom_attributes", {})
         }
-        for key, value in price_data.items():
-            if isinstance(value, str):
-                price_data[key] = _encode_back(value)
+        price_data = _encode_everything(price_data)
 
         self.make_request("prices", price_data)
 
 
 class CustomersSink(SharpiBaseSink):
     """Sharpi customers sink class."""
+
+    key_properties = ["code"]
 
     def process_record(self, record: dict, context: dict) -> None:
         """Process the customers record.
@@ -167,9 +180,7 @@ class CustomersSink(SharpiBaseSink):
             "salesperson_ids": record.get("salesperson_ids", []),
             "custom_attributes": record.get("custom_attributes", {})
         }
-        for key, value in customer_data.items():
-            if isinstance(value, str):
-                customer_data[key] = _encode_back(value)
+        customer_data = _encode_everything(customer_data)
 
         self.make_request("customers", customer_data)
 

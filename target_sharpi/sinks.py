@@ -44,6 +44,10 @@ class SharpiBaseSink(RecordSink):
     """Base Sharpi target sink class."""
 
     @property
+    def key_properties(self):
+        return []
+
+    @property
     def api_key(self) -> str:
         """Get API key from config."""
         return self.config["api_key"]
@@ -82,7 +86,9 @@ class SharpiBaseSink(RecordSink):
 class ProductsSink(SharpiBaseSink):
     """Sharpi products sink class."""
 
-    key_properties = ["code"]
+    @property
+    def key_properties(self):
+        return ["code"]
 
     def process_record(self, record: dict, context: dict) -> None:
         """Process the products record.
@@ -112,7 +118,9 @@ class ProductsSink(SharpiBaseSink):
 class PricesSink(SharpiBaseSink):
     """Sharpi prices sink class."""
 
-    key_properties = ["product_code"]
+    @property
+    def key_properties(self):
+        return ["product_code"]
 
     def process_record(self, record: dict, context: dict) -> None:
         """Process the prices record.
@@ -138,7 +146,9 @@ class PricesSink(SharpiBaseSink):
 class CustomersSink(SharpiBaseSink):
     """Sharpi customers sink class."""
 
-    key_properties = ["code"]
+    @property
+    def key_properties(self):
+        return ["code"]
 
     def process_record(self, record: dict, context: dict) -> None:
         """Process the customers record.

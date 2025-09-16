@@ -1,10 +1,16 @@
 """Sharpi target sink class, which handles writing streams."""
 
 from __future__ import annotations
-
+from ast import literal_eval
+import backoff
 import requests
-from typing import Any, Dict
+from typing import Any
 from singer_sdk.sinks import RecordSink
+from singer_sdk.exceptions import RetriableAPIError
+
+
+class DuplicatedRecordError(Exception):
+    """Exception raised when a duplicated record is found."""
 
 
 def _encode_everything(input: Any) -> Any:
@@ -24,18 +30,17 @@ def _encode_back(text: str) -> str:
         return text
 
     try:
-        text.encode('utf-8')
-        return text
+        return text.encode("utf-8")
     except UnicodeEncodeError:
         pass
 
     try:
-        return text.encode('latin1').decode('utf-8')
+        return text.encode("latin1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
         pass
 
     try:
-        return text.encode('utf-8', errors='replace').decode('utf-8')
+        return text.encode("utf-8", errors="replace").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
         return text
 
@@ -44,7 +49,8 @@ class SharpiBaseSink(RecordSink):
     """Base Sharpi target sink class."""
 
     @property
-    def key_properties(self):
+    def key_properties(self) -> list[str]:
+        """Get key properties for the sink."""
         return []
 
     @property
@@ -57,7 +63,8 @@ class SharpiBaseSink(RecordSink):
         """Get base URL for Sharpi API."""
         return "https://api.sharpi.com.br/v1/partner"
 
-    def make_request(self, endpoint: str, data: Dict[str, Any]) -> None:
+    @backoff.on_exception(backoff.expo, RetriableAPIError, max_time=60)
+    def make_request(self, endpoint: str, data: dict[str, Any], method: str = "POST") -> None:
         """Make HTTP request to Sharpi API."""
         url = f"{self.base_url}/{endpoint}"
         headers = {
@@ -68,7 +75,7 @@ class SharpiBaseSink(RecordSink):
         self.logger.info("Making request to %s", url)
         self.logger.debug("Request data: %s", data)
 
-        response = requests.post(url, json=data, headers=headers)
+        response = requests.request(method, url, json=data, headers=headers)
 
         self.logger.info("Request body: %s", data)
         self.logger.info("Response status code: %s", response.status_code)
@@ -77,17 +84,23 @@ class SharpiBaseSink(RecordSink):
         if response.status_code == 400:
             response_json = response.json()
             if "duplicate key" in response_json.get("message", ""):
-                self.logger.warning("Duplicate record ignored for %s: %s", endpoint, data.get('code', 'unknown'))
-                return
+                self.logger.warning("Duplicate record found for %s: %s", endpoint, data.get("code", "unknown"))
+                raise DuplicatedRecordError(response_json.get("message"))
+
             self.logger.warning("Response: %s", response_json)
             response.raise_for_status()
+
+        if response.status_code > 499:
+            self.logger.error("Server error: %s - %s", response.status_code, response.text)
+            raise RetriableAPIError(response.text)
 
 
 class ProductsSink(SharpiBaseSink):
     """Sharpi products sink class."""
 
     @property
-    def key_properties(self):
+    def key_properties(self) -> list[str]:
+        """Get key properties for the sink."""
         return ["code"]
 
     def process_record(self, record: dict, context: dict) -> None:
@@ -108,18 +121,28 @@ class ProductsSink(SharpiBaseSink):
             "observation": record.get("observation"),
             "line": record.get("line"),
             "active": record.get("active", True),
-            "custom_attributes": record.get("custom_attributes", {})
+            "custom_attributes": literal_eval(record.get("custom_attributes", "{}"))
         }
         product_data = _encode_everything(product_data)
 
-        self.make_request("products", product_data)
+        try:
+            self.make_request("products", product_data)
+        except DuplicatedRecordError as e:
+            self.make_request(
+                f"products/{record.get('code')}",
+                product_data,
+                method="PATCH"
+            )
+            self.logger.warning("Duplicated record patched for %s: %s", record.get("code"), e)
+            return
 
 
 class PricesSink(SharpiBaseSink):
     """Sharpi prices sink class."""
 
     @property
-    def key_properties(self):
+    def key_properties(self) -> list[str]:
+        """Get key properties for the sink."""
         return ["product_code"]
 
     def process_record(self, record: dict, context: dict) -> None:
@@ -132,22 +155,36 @@ class PricesSink(SharpiBaseSink):
         price_data = {
             "product_code": record.get("product_code"),
             "price_table_id": record.get("price_table_id"),
-            "price": str(record.get("price")) if record.get("price") is not None else None,
-            "max_allowed_discount": str(record.get("max_allowed_discount")) if record.get("max_allowed_discount") is not None else None,
+            "price": str(
+                record.get("price")
+            ) if record.get("price") is not None else None,
+            "max_allowed_discount": str(
+                record.get("max_allowed_discount")
+            ) if record.get("max_allowed_discount") is not None else None,
             "discount_type": record.get("discount_type", "percentage"),
             "active": record.get("active", True),
-            "custom_attributes": record.get("custom_attributes", {})
+            "custom_attributes": literal_eval(record.get("custom_attributes", "{}"))
         }
         price_data = _encode_everything(price_data)
 
-        self.make_request("prices", price_data)
+        try:
+            self.make_request("prices", price_data)
+        except DuplicatedRecordError as e:
+            self.make_request(
+                f"prices/{record.get('price_table_id')}/{record.get('product_code')}",
+                price_data,
+                method="PATCH"
+            )
+            self.logger.warning("Duplicated record patched for %s: %s", record.get("product_code"), e)
+            return
 
 
 class CustomersSink(SharpiBaseSink):
     """Sharpi customers sink class."""
 
     @property
-    def key_properties(self):
+    def key_properties(self) -> list[str]:
+        """Get key properties for the sink."""
         return ["code"]
 
     def process_record(self, record: dict, context: dict) -> None:
@@ -169,9 +206,9 @@ class CustomersSink(SharpiBaseSink):
                 "zip": record.get("billing_address", {}).get("zip"),
                 "country": record.get("billing_address", {}).get("country"),
                 "full_address": record.get("billing_address", {}).get("full_address"),
-                "custom_attributes": record.get("billing_address", {}).get(
+                "custom_attributes": literal_eval(record.get("billing_address", {}).get(
                     "custom_attributes", {}
-                )
+                ))
             },
             "shipping_address": {
                 "street": record.get("shipping_address", {}).get("street"),
@@ -180,19 +217,28 @@ class CustomersSink(SharpiBaseSink):
                 "zip": record.get("shipping_address", {}).get("zip"),
                 "country": record.get("shipping_address", {}).get("country"),
                 "full_address": record.get("shipping_address", {}).get("full_address"),
-                "custom_attributes": record.get("shipping_address", {}).get(
+                "custom_attributes": literal_eval(record.get("shipping_address", {}).get(
                     "custom_attributes", {}
-                )
+                ))
             },
             "tax_id": record.get("tax_id"),
             "active": record.get("active", True),
             "default_price_list_id": record.get("default_price_list_id"),
             "salesperson_ids": record.get("salesperson_ids", []),
-            "custom_attributes": record.get("custom_attributes", {})
+            "custom_attributes": literal_eval(record.get("custom_attributes", "{}"))
         }
         customer_data = _encode_everything(customer_data)
 
-        self.make_request("customers", customer_data)
+        try:
+            self.make_request("customers", customer_data)
+        except DuplicatedRecordError as e:
+            self.make_request(
+                f"customers/{record.get('code')}",
+                customer_data,
+                method="PATCH"
+            )
+            self.logger.warning("Duplicated record patched for %s: %s", record.get("code"), e)
+            return
 
 
 # Keep the old SharpiSink for backward compatibility
@@ -200,4 +246,10 @@ class SharpiSink(SharpiBaseSink):
     """Sharpi target sink class."""
 
     def process_record(self, record: dict, context: dict) -> None:
-        raise NotImplementedError
+        """Process the record. Not implemented.
+
+        Args:
+            record: Individual record in the stream.
+            context: Stream partition or context dictionary.
+        """
+        raise NotImplementedError("SharpiSink is not implemented")

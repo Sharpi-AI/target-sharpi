@@ -55,48 +55,12 @@ warn_unused_configs = true
 [tool.ruff.lint]
 ignore = [
     "COM812",  # missing-trailing-comma
+    "E501",  # line-too-long
 ]
 select = ["ALL"]
-
-[tool.ruff.lint.flake8-annotations]
-allow-star-arg-any = true
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"
 
 [build-system]
 requires = [
     "hatchling>=1,<2",
 ]
 build-backend = "hatchling.build"
-
-# This configuration can be used to customize tox tests as well as other test frameworks like flake8 and mypy
-[tool.tox]
-min_version = "4.22"
-requires = [
-    "tox>=4.22",
-    "tox-uv",
-]
-env_list = [
-    "typing",
-    "py314",
-    "py313",
-    "py312",
-    "py311",
-    "py310",
-]
-
-[tool.tox.env_run_base]
-runner = "uv-venv-lock-runner"
-pass_env = [
-    "TARGET_SHARPI_*",
-]
-dependency_groups = [ "test" ]
-commands = [ [ "pytest", { replace = "posargs", default = [ "tests" ], extend = true } ] ]
-
-[tool.tox.env.typing]
-dependency_groups = [ "test", "typing" ]
-commands = [
-    [ "mypy", { replace = "posargs", default = [ "target_sharpi", "tests" ], extend = true } ],
-    [ "ty", "check", { replace = "posargs", default = [ "target_sharpi", "tests" ], extend = true } ],
-]

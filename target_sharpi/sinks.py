@@ -83,7 +83,7 @@ class SharpiBaseSink(RecordSink):
 
         if response.status_code == 400:
             response_json = response.json()
-            if "duplicate key" in response_json.get("message", ""):
+            if "duplicate key" in response_json.get("message", "") or "already exists" in response_json.get("message", ""):
                 self.logger.warning("Duplicate record found for %s: %s", endpoint, data.get("code", "unknown"))
                 raise DuplicatedRecordError(response_json.get("message"))
 

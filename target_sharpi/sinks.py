@@ -48,6 +48,21 @@ def _encode_back(text: str) -> str:
 class SharpiBaseSink(RecordSink):
     """Base Sharpi target sink class."""
 
+    def _parse_custom_attributes(self, custom_attrs):
+        """Parse custom attributes from various formats."""
+        if isinstance(custom_attrs, dict):
+            return custom_attrs
+        elif isinstance(custom_attrs, str):
+            if not custom_attrs or custom_attrs == "None":
+                return {}
+            try:
+                return literal_eval(custom_attrs)
+            except (ValueError, SyntaxError):
+                # If literal_eval fails, try to return as is or empty dict
+                return {}
+        else:
+            return {}
+
     @property
     def key_properties(self) -> list[str]:
         """Get key properties for the sink."""
@@ -121,7 +136,7 @@ class ProductsSink(SharpiBaseSink):
             "observation": record.get("observation"),
             "line": record.get("line"),
             "active": record.get("active", True),
-            "custom_attributes": literal_eval(record.get("custom_attributes", "{}"))
+            "custom_attributes": self._parse_custom_attributes(record.get("custom_attributes", {}))
         }
         product_data = _encode_everything(product_data)
 
@@ -163,7 +178,7 @@ class PricesSink(SharpiBaseSink):
             ) if record.get("max_allowed_discount") is not None else None,
             "discount_type": record.get("discount_type", "percentage"),
             "active": record.get("active", True),
-            "custom_attributes": literal_eval(record.get("custom_attributes", "{}"))
+            "custom_attributes": self._parse_custom_attributes(record.get("custom_attributes", {}))
         }
         price_data = _encode_everything(price_data)
 
@@ -225,7 +240,7 @@ class CustomersSink(SharpiBaseSink):
             "active": record.get("active", True),
             "default_price_list_id": record.get("default_price_list_id"),
             "salesperson_ids": record.get("salesperson_ids", []),
-            "custom_attributes": literal_eval(record.get("custom_attributes", "{}"))
+            "custom_attributes": self._parse_custom_attributes(record.get("custom_attributes", {}))
         }
         customer_data = _encode_everything(customer_data)
 

@@ -266,13 +266,44 @@ class CustomersSink(SharpiBaseSink):
 
 # Keep the old SharpiSink for backward compatibility
 class SharpiSink(SharpiBaseSink):
-    """Sharpi target sink class."""
+    """Generic Sharpi target sink class for unspecified streams."""
 
     def process_record(self, record: dict, context: dict) -> None:
-        """Process the record. Not implemented.
+        """Process the record generically.
 
         Args:
             record: Individual record in the stream.
             context: Stream partition or context dictionary.
         """
-        raise NotImplementedError("SharpiSink is not implemented")
+        # Get stream name from context or default to 'data'
+        stream_name = context.get("stream_name", "data")
+
+        # Encode all data to ensure proper UTF-8 handling
+        processed_data = _encode_everything(record)
+
+        # Add custom_attributes parsing if present
+        if "custom_attributes" in processed_data:
+            processed_data["custom_attributes"] = self._parse_custom_attributes(
+                processed_data["custom_attributes"]
+            )
+
+        # Use the stream name as the endpoint
+        try:
+            self.make_request(stream_name, processed_data)
+        except DuplicatedRecordError as e:
+            # For generic handling, try to update using a 'code' or 'id' field if available
+            record_id = record.get("code") or record.get("id")
+            if record_id:
+                self.make_request(
+                    f"{stream_name}/{record_id}",
+                    processed_data,
+                    method="PATCH"
+                )
+                self.logger.warning("Duplicated record patched for %s: %s", record_id, e)
+            else:
+                # If no ID field is available, log error and re-raise
+                self.logger.error("Duplicate record found but no ID field available for updating: %s", e)
+                raise
+        except Exception as e:
+            self.logger.error("Error processing record for stream %s: %s", stream_name, e)
+            raise

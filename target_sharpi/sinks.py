@@ -169,6 +169,7 @@ class PricesSink(SharpiBaseSink):
         """
         price_data = {
             "product_code": record.get("product_code"),
+            "product_unit_id": record.get("product_unit_id", ""),
             "price_table_id": record.get("price_table_id"),
             "price": str(
                 record.get("price")
@@ -185,12 +186,19 @@ class PricesSink(SharpiBaseSink):
         try:
             self.make_request("prices", price_data)
         except DuplicatedRecordError as e:
+            # Build the PATCH URL with all unique key components
+            product_unit_id = record.get('product_unit_id', '')
+            patch_url = f"prices/{record.get('price_table_id')}/{record.get('product_code')}"
+            if product_unit_id:
+                patch_url += f"/{product_unit_id}"
+
             self.make_request(
-                f"prices/{record.get('price_table_id')}/{record.get('product_code')}",
+                patch_url,
                 price_data,
                 method="PATCH"
             )
-            self.logger.warning("Duplicated record patched for %s: %s", record.get("product_code"), e)
+            self.logger.warning("Duplicated record patched for product_code=%s, product_unit_id=%s: %s",
+                              record.get("product_code"), product_unit_id, e)
             return
 
 

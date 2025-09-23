@@ -6,7 +6,6 @@ from singer_sdk import typing as th
 from singer_sdk.target_base import Target
 
 from target_sharpi.sinks import (
-    SharpiSink,
     ProductsSink,
     PricesSink,
     CustomersSink,
@@ -29,16 +28,16 @@ class TargetSharpi(Target):
         ),
     ).to_dict()
 
-    default_sink_class = SharpiSink
-
     def get_sink_class(self, stream_name: str) -> type:
         """Return the appropriate sink class for the given stream name."""
         sink_mapping = {
             "products": ProductsSink,
             "prices": PricesSink,
-            "customers": CustomersSink,
+            "clients": CustomersSink,
         }
-        return sink_mapping.get(stream_name, self.default_sink_class)
+        if stream_name not in sink_mapping:
+            raise ValueError(f"Unsupported stream: {stream_name}. Supported streams are: {', '.join(sink_mapping.keys())}")
+        return sink_mapping[stream_name]
 
     def get_sink(self, stream_name: str, record: dict | None = None, schema: dict | None = None, key_properties: list[str] | None = None):
         """Get a sink for the given stream name with stream_name in context."""
@@ -50,7 +49,7 @@ class TargetSharpi(Target):
         stream_name = message_dict.get("stream")
         if stream_name:
             # Get the sink for this stream
-            sink = self._get_sink(stream_name)
+            sink = self.get_sink(stream_name)
 
             # Create context with stream_name
             context = {"stream_name": stream_name}

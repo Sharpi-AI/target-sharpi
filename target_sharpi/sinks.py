@@ -274,21 +274,39 @@ class SharpiSink(SharpiBaseSink):
             record: Individual record in the stream.
             context: Stream partition or context dictionary.
         """
-        # Get stream name from context
-        stream_name = context.get("stream_name", "data")
+        # Get stream name from context - no default since 'data' is not a valid endpoint
+        stream_name = context.get("stream_name")
+
+        if not stream_name:
+            raise ValueError("stream_name must be provided in context")
 
         # Map stream names to API endpoints
+        # Based on Sharpi API documentation, valid endpoints are:
         endpoint_map = {
             "customers": "customers",
             "customer": "customers",
             "products": "products",
             "product": "products",
             "prices": "prices",
-            "price": "prices"
+            "price": "prices",
+            "orders": "orders",
+            "order": "orders",
+            "salespersons": "salespersons",
+            "salesperson": "salespersons",
+            "price_tables": "price-tables",
+            "price_table": "price-tables"
         }
 
-        # Use mapped endpoint or fall back to stream name
-        endpoint = endpoint_map.get(stream_name.lower(), stream_name)
+        # Get the endpoint from the map
+        endpoint = endpoint_map.get(stream_name.lower())
+
+        if not endpoint:
+            # If no mapping found, check if it's already a valid endpoint name
+            valid_endpoints = set(endpoint_map.values())
+            if stream_name.lower() in valid_endpoints:
+                endpoint = stream_name.lower()
+            else:
+                raise ValueError(f"Unknown stream name: {stream_name}. Valid streams are: {', '.join(endpoint_map.keys())}")
 
         # Process special fields like addresses that might be JSON strings
         if "shipping_address" in record and isinstance(record["shipping_address"], (str, bytes)):
@@ -338,5 +356,5 @@ class SharpiSink(SharpiBaseSink):
                 self.logger.error("Duplicate record found but no ID field available for updating: %s", e)
                 raise
         except Exception as e:
-            self.logger.error("Error processing record for stream %s (endpoint: %s): %s", stream_name, endpoint, e)
+            self.logger.error("Error processing record for stream '%s' (endpoint: %s): %s", stream_name, endpoint, e)
             raise

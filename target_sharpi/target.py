@@ -40,6 +40,28 @@ class TargetSharpi(Target):
         }
         return sink_mapping.get(stream_name, self.default_sink_class)
 
+    def get_sink(self, stream_name: str, record: dict | None = None, schema: dict | None = None, key_properties: list[str] | None = None):
+        """Get a sink for the given stream name with stream_name in context."""
+        sink = super().get_sink(stream_name, record, schema, key_properties)
+        return sink
+
+    def _process_record_message(self, message_dict: dict) -> None:
+        """Override to inject stream_name into context before processing."""
+        stream_name = message_dict.get("stream")
+        if stream_name:
+            # Get the sink for this stream
+            sink = self._get_sink(stream_name)
+
+            # Create context with stream_name
+            context = {"stream_name": stream_name}
+
+            # Process the record with the updated context
+            sink.process_record(message_dict.get("record", {}), context)
+        else:
+            # If no stream name, log warning but continue with parent implementation
+            self.logger.warning("Record message missing 'stream' field, using fallback processing")
+            super()._process_record_message(message_dict)
+
 
 if __name__ == "__main__":
     TargetSharpi.cli()

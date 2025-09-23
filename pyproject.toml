@@ -1,6 +1,6 @@
 [project]
 name = "target-sharpi"
-version = "0.0.2"
+version = "0.0.3"
 description = "Singer target for Sharpi, built with the Meltano Singer SDK."
 readme = "README.md"
 authors = [{ name = "Vinicius Mesel", email = "vini@sharpi.com.br" }]

@@ -26,23 +26,22 @@ def _encode_everything(input: Any) -> Any:
 
 def _encode_back(text: str) -> str:
     """Safely handle text encoding to ensure proper UTF-8 strings."""
+    # Handle bytes input
+    if isinstance(text, bytes):
+        try:
+            return text.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                return text.decode("latin1")
+            except UnicodeDecodeError:
+                return text.decode("utf-8", errors="replace")
+
+    # Handle string input
     if not isinstance(text, str):
-        return text
+        return str(text) if text is not None else ""
 
-    try:
-        return text.encode("utf-8")
-    except UnicodeEncodeError:
-        pass
-
-    try:
-        return text.encode("latin1").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        pass
-
-    try:
-        return text.encode("utf-8", errors="replace").decode("utf-8")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return text
+    # String is already properly encoded, just return it
+    return text
 
 
 class SharpiBaseSink(RecordSink):
@@ -275,8 +274,42 @@ class SharpiSink(SharpiBaseSink):
             record: Individual record in the stream.
             context: Stream partition or context dictionary.
         """
-        # Get stream name from context or default to 'data'
+        # Get stream name from context
         stream_name = context.get("stream_name", "data")
+
+        # Map stream names to API endpoints
+        endpoint_map = {
+            "customers": "customers",
+            "customer": "customers",
+            "products": "products",
+            "product": "products",
+            "prices": "prices",
+            "price": "prices"
+        }
+
+        # Use mapped endpoint or fall back to stream name
+        endpoint = endpoint_map.get(stream_name.lower(), stream_name)
+
+        # Process special fields like addresses that might be JSON strings
+        if "shipping_address" in record and isinstance(record["shipping_address"], (str, bytes)):
+            try:
+                import json
+                if isinstance(record["shipping_address"], bytes):
+                    record["shipping_address"] = json.loads(record["shipping_address"].decode("utf-8"))
+                else:
+                    record["shipping_address"] = json.loads(record["shipping_address"])
+            except (json.JSONDecodeError, AttributeError):
+                self.logger.warning("Could not parse shipping_address as JSON")
+
+        if "billing_address" in record and isinstance(record["billing_address"], (str, bytes)):
+            try:
+                import json
+                if isinstance(record["billing_address"], bytes):
+                    record["billing_address"] = json.loads(record["billing_address"].decode("utf-8"))
+                else:
+                    record["billing_address"] = json.loads(record["billing_address"])
+            except (json.JSONDecodeError, AttributeError):
+                self.logger.warning("Could not parse billing_address as JSON")
 
         # Encode all data to ensure proper UTF-8 handling
         processed_data = _encode_everything(record)
@@ -287,15 +320,15 @@ class SharpiSink(SharpiBaseSink):
                 processed_data["custom_attributes"]
             )
 
-        # Use the stream name as the endpoint
+        # Use the mapped endpoint for API request
         try:
-            self.make_request(stream_name, processed_data)
+            self.make_request(endpoint, processed_data)
         except DuplicatedRecordError as e:
             # For generic handling, try to update using a 'code' or 'id' field if available
-            record_id = record.get("code") or record.get("id")
+            record_id = processed_data.get("code") or processed_data.get("id")
             if record_id:
                 self.make_request(
-                    f"{stream_name}/{record_id}",
+                    f"{endpoint}/{record_id}",
                     processed_data,
                     method="PATCH"
                 )
@@ -305,5 +338,5 @@ class SharpiSink(SharpiBaseSink):
                 self.logger.error("Duplicate record found but no ID field available for updating: %s", e)
                 raise
         except Exception as e:
-            self.logger.error("Error processing record for stream %s: %s", stream_name, e)
+            self.logger.error("Error processing record for stream %s (endpoint: %s): %s", stream_name, endpoint, e)
             raise

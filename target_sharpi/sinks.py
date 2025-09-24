@@ -222,26 +222,26 @@ class CustomersSink(SharpiBaseSink):
             "legal_name": record.get("legal_name"),
             "email": record.get("email"),
             "billing_address": {
-                "street": record.get("billing_address", {}).get("street"),
-                "city": record.get("billing_address", {}).get("city"),
-                "state": record.get("billing_address", {}).get("state"),
-                "zip": record.get("billing_address", {}).get("zip"),
-                "country": record.get("billing_address", {}).get("country"),
-                "full_address": record.get("billing_address", {}).get("full_address"),
+                "street": record.get("billing_address", {}).get("street") if isinstance(record.get("billing_address"), dict) else None,
+                "city": record.get("billing_address", {}).get("city") if isinstance(record.get("billing_address"), dict) else None,
+                "state": record.get("billing_address", {}).get("state") if isinstance(record.get("billing_address"), dict) else None,
+                "zip": record.get("billing_address", {}).get("zip") if isinstance(record.get("billing_address"), dict) else None,
+                "country": record.get("billing_address", {}).get("country") if isinstance(record.get("billing_address"), dict) else None,
+                "full_address": record.get("billing_address", {}).get("full_address") if isinstance(record.get("billing_address"), dict) else record.get("billing_address"),
                 "custom_attributes": literal_eval(record.get("billing_address", {}).get(
                     "custom_attributes", {}
-                ))
+                )) if isinstance(record.get("billing_address"), dict) else {}
             },
             "shipping_address": {
-                "street": record.get("shipping_address", {}).get("street"),
-                "city": record.get("shipping_address", {}).get("city"),
-                "state": record.get("shipping_address", {}).get("state"),
-                "zip": record.get("shipping_address", {}).get("zip"),
-                "country": record.get("shipping_address", {}).get("country"),
-                "full_address": record.get("shipping_address", {}).get("full_address"),
+                "street": record.get("shipping_address", {}).get("street") if isinstance(record.get("shipping_address"), dict) else None,
+                "city": record.get("shipping_address", {}).get("city") if isinstance(record.get("shipping_address"), dict) else None,
+                "state": record.get("shipping_address", {}).get("state") if isinstance(record.get("shipping_address"), dict) else None,
+                "zip": record.get("shipping_address", {}).get("zip") if isinstance(record.get("shipping_address"), dict) else None,
+                "country": record.get("shipping_address", {}).get("country") if isinstance(record.get("shipping_address"), dict) else None,
+                "full_address": record.get("shipping_address", {}).get("full_address") if isinstance(record.get("shipping_address"), dict) else record.get("shipping_address"),
                 "custom_attributes": literal_eval(record.get("shipping_address", {}).get(
                     "custom_attributes", {}
-                ))
+                )) if isinstance(record.get("shipping_address"), dict) else {}
             },
             "tax_id": record.get("tax_id"),
             "active": record.get("active", True),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 from ast import literal_eval
 import backoff
+import re
 import requests
 from typing import Any
 from singer_sdk.sinks import RecordSink
@@ -209,6 +210,28 @@ class CustomersSink(SharpiBaseSink):
         """Get key properties for the sink."""
         return ["code"]
 
+    def _clean_tax_id(self, tax_id: str) -> str:
+        """Clean and validate tax_id for CPF/CNPJ format.
+
+        Args:
+            tax_id: The tax ID string to clean
+
+        Returns:
+            Cleaned tax ID with only numbers, limited to 14 characters
+        """
+        if not tax_id:
+            return None
+
+        # Remove all non-numeric characters
+        cleaned = re.sub(r'\D', '', str(tax_id))
+
+        # Limit to 14 characters (CNPJ max length)
+        if len(cleaned) > 14:
+            self.logger.warning(f"Tax ID truncated from {len(cleaned)} to 14 characters: {tax_id}")
+            cleaned = cleaned[:14]
+
+        return cleaned if cleaned else None
+
     def process_record(self, record: dict, context: dict) -> None:
         """Process the customers record.
 
@@ -243,7 +266,7 @@ class CustomersSink(SharpiBaseSink):
                     "custom_attributes", {}
                 )) if isinstance(record.get("shipping_address"), dict) else {}
             },
-            "tax_id": record.get("tax_id"),
+            "tax_id": self._clean_tax_id(record.get("tax_id")),
             "active": record.get("active", True),
             "default_price_list_id": record.get("default_price_list_id"),
             "salesperson_ids": record.get("salesperson_ids", []),

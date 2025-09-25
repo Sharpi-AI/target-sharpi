@@ -53,13 +53,16 @@ class SharpiBaseSink(RecordSink):
         if isinstance(custom_attrs, dict):
             return custom_attrs
         elif isinstance(custom_attrs, str):
-            if not custom_attrs or custom_attrs == "None":
+            if not custom_attrs or custom_attrs in ("None", "null", ""):
                 return {}
-            try:
-                return literal_eval(custom_attrs)
-            except (ValueError, SyntaxError):
-                # If literal_eval fails, try to return as is or empty dict
-                return {}
+            # Fast path for simple cases
+            if custom_attrs.startswith('{') and custom_attrs.endswith('}'):
+                try:
+                    return literal_eval(custom_attrs)
+                except (ValueError, SyntaxError):
+                    self.logger.debug("Failed to parse custom_attributes: %s", custom_attrs)
+                    return {}
+            return {}
         else:
             return {}
 
@@ -78,7 +81,7 @@ class SharpiBaseSink(RecordSink):
         """Get base URL for Sharpi API."""
         return "https://api.sharpi.com.br/v1/partner"
 
-    @backoff.on_exception(backoff.expo, RetriableAPIError, max_time=60)
+    @backoff.on_exception(backoff.expo, RetriableAPIError, max_time=15, max_tries=3)
     def make_request(self, endpoint: str, data: dict[str, Any], method: str = "POST") -> None:
         """Make HTTP request to Sharpi API."""
         url = f"{self.base_url}/{endpoint}"
@@ -87,13 +90,12 @@ class SharpiBaseSink(RecordSink):
             "X-API-Key": self.api_key
         }
 
-        self.logger.info("Making request to %s", url)
+        self.logger.debug("Making request to %s", url)
         self.logger.debug("Request data: %s", data)
 
-        response = requests.request(method, url, json=data, headers=headers)
+        response = requests.request(method, url, json=data, headers=headers, timeout=30)
 
-        self.logger.info("Request body: %s", data)
-        self.logger.info("Response status code: %s", response.status_code)
+        self.logger.debug("Response status code: %s", response.status_code)
         self.logger.debug("Response: %s", response.text)
 
         if response.status_code == 400:
@@ -251,7 +253,7 @@ class CustomersSink(SharpiBaseSink):
                 "zip": record.get("billing_address", {}).get("zip") if isinstance(record.get("billing_address"), dict) else None,
                 "country": record.get("billing_address", {}).get("country") if isinstance(record.get("billing_address"), dict) else None,
                 "full_address": record.get("billing_address", {}).get("full_address") if isinstance(record.get("billing_address"), dict) else record.get("billing_address"),
-                "custom_attributes": literal_eval(record.get("billing_address", {}).get(
+                "custom_attributes": self._parse_custom_attributes(record.get("billing_address", {}).get(
                     "custom_attributes", {}
                 )) if isinstance(record.get("billing_address"), dict) else {}
             },
@@ -262,7 +264,7 @@ class CustomersSink(SharpiBaseSink):
                 "zip": record.get("shipping_address", {}).get("zip") if isinstance(record.get("shipping_address"), dict) else None,
                 "country": record.get("shipping_address", {}).get("country") if isinstance(record.get("shipping_address"), dict) else None,
                 "full_address": record.get("shipping_address", {}).get("full_address") if isinstance(record.get("shipping_address"), dict) else record.get("shipping_address"),
-                "custom_attributes": literal_eval(record.get("shipping_address", {}).get(
+                "custom_attributes": self._parse_custom_attributes(record.get("shipping_address", {}).get(
                     "custom_attributes", {}
                 )) if isinstance(record.get("shipping_address"), dict) else {}
             },
@@ -284,8 +286,3 @@ class CustomersSink(SharpiBaseSink):
             )
             self.logger.warning("Duplicated record patched for %s: %s", record.get("code"), e)
             return
-
-
-
-
-

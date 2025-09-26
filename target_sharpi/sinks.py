@@ -81,7 +81,7 @@ class SharpiBaseSink(RecordSink):
         """Get base URL for Sharpi API."""
         return "https://api.sharpi.com.br/v1/partner"
 
-    @backoff.on_exception(backoff.expo, RetriableAPIError, max_time=15, max_tries=3)
+    @backoff.on_exception(backoff.expo, (RetriableAPIError, requests.exceptions.ConnectionError), max_time=15, max_tries=3)
     def make_request(self, endpoint: str, data: dict[str, Any], method: str = "POST") -> None:
         """Make HTTP request to Sharpi API."""
         url = f"{self.base_url}/{endpoint}"
@@ -100,11 +100,23 @@ class SharpiBaseSink(RecordSink):
 
         if response.status_code == 400:
             response_json = response.json()
-            if "duplicate key" in response_json.get("message", "") or "already exists" in response_json.get("message", ""):
-                self.logger.warning("Duplicate record found for %s: %s", endpoint, data.get("code", "unknown"))
+            message = response_json.get("message", "").lower()
+
+            # Check for various duplicate key constraint patterns
+            duplicate_patterns = [
+                "duplicate key",
+                "already exists",
+                "customers_remote_id_organization_id_key",
+                "customers_code_organization_id_key",
+                "violates unique constraint"
+            ]
+
+            if any(pattern in message for pattern in duplicate_patterns):
+                self.logger.warning("Duplicate record found for %s (code: %s): %s",
+                                  endpoint, data.get("code", "unknown"), response_json.get("message"))
                 raise DuplicatedRecordError(response_json.get("message"))
 
-            self.logger.warning("Response: %s", response_json)
+            self.logger.warning("Bad request for %s: %s", endpoint, response_json)
             response.raise_for_status()
 
         if response.status_code > 499:
@@ -234,6 +246,23 @@ class CustomersSink(SharpiBaseSink):
 
         return cleaned if cleaned else None
 
+    def _validate_customer_record(self, record: dict) -> None:
+        """Validate customer record before processing.
+
+        Args:
+            record: Individual record in the stream.
+
+        Raises:
+            ValueError: If required fields are missing or invalid.
+        """
+        code = record.get("code")
+        if not code or str(code).strip() == "":
+            raise ValueError(f"Customer code cannot be empty or null. Record: {record}")
+
+        # Convert to string and ensure it's not just whitespace
+        if not str(code).strip():
+            raise ValueError(f"Customer code cannot be just whitespace. Record: {record}")
+
     def process_record(self, record: dict, context: dict) -> None:
         """Process the customers record.
 
@@ -241,8 +270,17 @@ class CustomersSink(SharpiBaseSink):
             record: Individual record in the stream.
             context: Stream partition or context dictionary.
         """
+        try:
+            self._validate_customer_record(record)
+        except ValueError as e:
+            self.logger.error("Invalid customer record: %s", e)
+            return
+
+        # Convert code to string to ensure consistency
+        code = str(record.get("code")).strip()
+
         customer_data = {
-            "code": record.get("code"),
+            "code": code,
             "name": record.get("name"),
             "legal_name": record.get("legal_name"),
             "email": record.get("email"),
@@ -278,11 +316,17 @@ class CustomersSink(SharpiBaseSink):
 
         try:
             self.make_request("customers", customer_data)
+            self.logger.debug("Customer created successfully: %s", code)
         except DuplicatedRecordError as e:
-            self.make_request(
-                f"customers/{record.get('code')}",
-                customer_data,
-                method="PATCH"
-            )
-            self.logger.warning("Duplicated record patched for %s: %s", record.get("code"), e)
+            try:
+                self.make_request(
+                    f"customers/{code}",
+                    customer_data,
+                    method="PATCH"
+                )
+                self.logger.warning("Duplicated record patched for %s: %s", code, e)
+            except Exception as patch_error:
+                self.logger.error("Failed to patch customer %s after duplicate error. Original: %s, Patch error: %s",
+                                code, e, patch_error)
+                raise patch_error
             return
